@@ -46,6 +46,68 @@ CHAR InjectShellCodeX86[] = {
 	0xC3
 };
 
+BOOLEAN Is3DProcessInRegistryConfig(WCHAR* processName)
+{
+	BOOLEAN isChecked = FALSE;
+	NTSTATUS status;
+	HANDLE serviceKeyHandle;
+	OBJECT_ATTRIBUTES objectAttributes;
+	UNICODE_STRING serviceKeyName, valueName;
+	ULONG disposition;
+	ULONG dataSize = 0;
+	KEY_VALUE_PARTIAL_INFORMATION* dataBuffer = NULL;
+
+	RtlInitUnicodeString(&valueName, L"ProcessList");
+	RtlInitUnicodeString(&serviceKeyName, L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services\\GdvProcess");
+	InitializeObjectAttributes(&objectAttributes, &serviceKeyName, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+	status = ZwOpenKey(&serviceKeyHandle, KEY_READ, &objectAttributes);
+	if (!NT_SUCCESS(status))
+	{
+		status = ZwCreateKey(&serviceKeyHandle, KEY_ALL_ACCESS, &objectAttributes, 0, NULL, REG_OPTION_NON_VOLATILE, &disposition);
+		if (NT_SUCCESS(status) && (disposition == REG_CREATED_NEW_KEY))
+		{
+			WCHAR defaultData[] = L"";
+			status = ZwSetValueKey(serviceKeyHandle, &valueName, 0, REG_MULTI_SZ, defaultData, sizeof(defaultData));
+		}
+	}
+	else
+	{
+		status = ZwQueryValueKey(serviceKeyHandle, &valueName, KeyValuePartialInformation, NULL, 0, &dataSize);
+		if (status == STATUS_BUFFER_TOO_SMALL)
+		{
+			dataBuffer = ExAllocatePool(PagedPool, dataSize);
+			if (dataBuffer != NULL)
+			{
+				// 查询
+				status = ZwQueryValueKey(serviceKeyHandle, &valueName, KeyValuePartialInformation, dataBuffer, dataSize, &dataSize);
+				if (NT_SUCCESS(status))
+				{
+					WCHAR* value = (WCHAR*)dataBuffer->Data;
+					while (*value)
+					{
+						ULONG offset = wcslen(value);
+						if (wcscmp(value, processName) == 0)
+						{
+							KdPrint(("datalen:%u -- data:%ls\r\n", offset, value));
+							isChecked = TRUE;
+							break;
+						}
+						value = value + offset + 1;
+					}
+				}
+				ExFreePool(dataBuffer);
+			}
+		}
+	}
+
+	if (serviceKeyHandle)
+	{
+		ZwClose(serviceKeyHandle);
+	}
+	return NT_SUCCESS(status) && isChecked;
+}
+
 VOID InJectApcKernelRoutine(PRKAPC apc, PKNORMAL_ROUTINE* routine, PVOID* normalContext, PVOID* systemArgument1, PVOID* systemArgument2)
 {
 	if (apc) ExFreePool(apc);
@@ -65,10 +127,8 @@ NTSTATUS DLLInjectByApc(HANDLE pid, PWCHAR dllPath, PVOID ldrLoadDllPfn, BOOLEAN
 	SIZE_T codeParamSize = PAGE_SIZE;
 	SIZE_T shellcodeSize = isWow64 == FALSE ? sizeof(InjectShellCodeX64) : sizeof(InjectShellCodeX86);
 
-	// ACG防护  --  不可申请的可写可执行
 	NTSTATUS stat1 = CT_ZwAllocateVirtualMemory(NtCurrentProcess(), &normalRoutine, &shellcodeSize, MEM_COMMIT, PAGE_EXECUTE_READ);
 	NTSTATUS stat2 = CT_ZwAllocateVirtualMemory(NtCurrentProcess(), &shellcodeParam, &codeParamSize, MEM_COMMIT, PAGE_READWRITE);
-	
 	if (NT_SUCCESS(stat1) && NT_SUCCESS(stat2) && normalRoutine && shellcodeParam)
 	{
 		if (!isWow64)
@@ -197,7 +257,7 @@ VOID CbLoadImage(_In_opt_ PUNICODE_STRING fullImageName, _In_ HANDLE processId, 
 			if (pos != -1)
 			{
 				WCHAR* fileName = &processImageName->Name.Buffer[pos + 1];
-				if (wcscmp(fileName, INJECT_PROCESS_NAME) == 0)
+				if (Is3DProcessInRegistryConfig(fileName) /*wcscmp(fileName, INJECT_PROCESS_NAME) == 0*/)
 				{
 					isMatching = TRUE;
 				}
