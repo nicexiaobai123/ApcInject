@@ -46,6 +46,91 @@ CHAR InjectShellCodeX86[] = {
 	0xC3
 };
 
+/*
+NTSTATUS GrantAccessToFile(PUNICODE_STRING filePath, ACCESS_MASK accessMask)
+{
+	NTSTATUS status = STATUS_UNSUCCESSFUL;
+	HANDLE fileHandle = NULL;
+	OBJECT_ATTRIBUTES objAttr;
+	IO_STATUS_BLOCK ioStatus;
+	PSECURITY_DESCRIPTOR securityDescriptor = NULL;
+	PACL acl = NULL;
+
+	// 打开文件
+	InitializeObjectAttributes(&objAttr, filePath, OBJ_KERNEL_HANDLE, NULL, NULL);
+	status = ZwCreateFile(&fileHandle, FILE_GENERIC_READ | FILE_GENERIC_WRITE, &objAttr, &ioStatus, NULL, FILE_ATTRIBUTE_NORMAL,
+		FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
+	if (!NT_SUCCESS(status))
+	{
+		goto end;
+	}
+
+	// 获取文件的安全描述符
+	ULONG bufferSize = 0;
+	status = ZwQuerySecurityObject(fileHandle, DACL_SECURITY_INFORMATION, NULL, 0, &bufferSize);
+	if (status == STATUS_BUFFER_TOO_SMALL)
+	{
+		goto end;
+	}
+
+	securityDescriptor = ExAllocatePool(NonPagedPool, bufferSize);
+	if (!securityDescriptor)
+	{
+		goto end;
+	}
+
+	status = ZwQuerySecurityObject(fileHandle, DACL_SECURITY_INFORMATION, securityDescriptor, bufferSize, &bufferSize);
+	if (!NT_SUCCESS(status))
+	{
+		goto end;
+	}
+
+	// 获取 DACL
+	PACL daclPresent = NULL;
+	BOOLEAN daclDefaulted = FALSE;
+	status = RtlGetDaclSecurityDescriptor(securityDescriptor, &daclPresent, &acl, &daclDefaulted);
+	if (!NT_SUCCESS(status) || !daclPresent || !acl)
+	{
+		goto end;
+	}
+
+	// 分配 SID
+	PSID sid;
+	SID_IDENTIFIER_AUTHORITY authority = SECURITY_WORLD_SID_AUTHORITY;
+	status = RtlAllocateAndInitializeSid(&authority, 2, SECURITY_BUILTIN_DOMAIN_RID, 0, 15, 2, 0, 0, 0, 0, &sid);
+	if (!NT_SUCCESS(status))
+	{
+		goto end;
+	}
+
+	// 在 DACL 中为 SID 添加 ACE
+	status = RtlAddAccessAllowedAce(acl, ACL_REVISION, accessMask, sid);
+	if (!NT_SUCCESS(status))
+	{
+		goto end;
+	}
+
+	// 更新文件的安全描述符
+	status = ZwSetSecurityObject(fileHandle, DACL_SECURITY_INFORMATION, securityDescriptor);
+	if (!NT_SUCCESS(status))
+	{
+		goto end;
+	}
+
+end:
+	// 清理资源
+	if (securityDescriptor)
+	{
+		ExFreePool(securityDescriptor);
+	}
+	if (fileHandle)
+	{
+		ZwClose(fileHandle);
+	}
+	return status;
+}
+*/
+
 BOOLEAN Is3DProcessInRegistryConfig(WCHAR* processName)
 {
 	BOOLEAN isChecked = FALSE;
@@ -57,7 +142,7 @@ BOOLEAN Is3DProcessInRegistryConfig(WCHAR* processName)
 	ULONG dataSize = 0;
 	KEY_VALUE_PARTIAL_INFORMATION* dataBuffer = NULL;
 
-	RtlInitUnicodeString(&valueName, L"ProcessList");
+	RtlInitUnicodeString(&valueName, L"ProcessConfig");
 	RtlInitUnicodeString(&serviceKeyName, L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services\\GdvProcess");
 	InitializeObjectAttributes(&objectAttributes, &serviceKeyName, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
 
@@ -87,7 +172,7 @@ BOOLEAN Is3DProcessInRegistryConfig(WCHAR* processName)
 					while (*value)
 					{
 						ULONG offset = wcslen(value);
-						if (wcscmp(value, processName) == 0)
+						if (_wcsicmp(value, processName) == 0)
 						{
 							KdPrint(("datalen:%u -- data:%ls\r\n", offset, value));
 							isChecked = TRUE;
