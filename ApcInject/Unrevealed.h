@@ -487,16 +487,16 @@ typedef enum _SYSTEM_INFORMATION_CLASS
 
 typedef struct _SYSTEM_MODULE_INFORMATION_ENTRY
 {
-	HANDLE Section;
+	HANDLE Section;                 // Not filled in
 	PVOID MappedBase;
-	PVOID Base;
-	ULONG Size;
+	PVOID ImageBase;
+	ULONG ImageSize;
 	ULONG Flags;
 	USHORT LoadOrderIndex;
 	USHORT InitOrderIndex;
 	USHORT LoadCount;
-	USHORT PathLength;
-	CHAR ImageName[256];
+	USHORT OffsetToFileName;
+	UCHAR  FullPathName[256];
 } SYSTEM_MODULE_INFORMATION, * PSYSTEM_MODULE_INFORMATION;
 
 #pragma region DBGKD_DATA_STATEMENT
@@ -1135,3 +1135,9 @@ typedef struct _MYMEMORY_BASIC_INFORMATION {
 	ULONG64 Protect;
 	ULONG64 Type;
 } MYMEMORY_BASIC_INFORMATION, * PMYMEMORY_BASIC_INFORMATION;
+
+// 模块信息结构体
+typedef struct _PROCESS_MODULES_INFORMATION {
+	ULONG NumberOfModules;
+	SYSTEM_MODULE_INFORMATION Modules[1];
+} PROCESS_MODULES_INFORMATION, * PPROCESS_MODULES_INFORMATION;
